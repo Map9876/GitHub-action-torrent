@@ -28,7 +28,7 @@ jobs:
         env:
          SCKEY: ${{ secrets.SCKEY }}
 
-        run: sudo ./run.sh ${{ secrets.HUGGINGFACE }}
+        run: sudo bash ./run.sh ${{ secrets.HUGGINGFACE }}
 
 
       - name: Commit
