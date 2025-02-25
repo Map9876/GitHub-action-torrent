@@ -2,7 +2,6 @@ import libtorrent as lt
 import time
 import os
 import hashlib
-import shutil
 import sys
 from huggingface_hub import HfApi
 
@@ -27,26 +26,44 @@ def compute_file_hash(file_path):
             sha1.update(chunk)
     return sha1.hexdigest()
 
+def format_size(size):
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 * 1024:
+        return f"{size / 1024:.2f} KB"
+    elif size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.2f} MB"
+    else:
+        return f"{size / (1024 * 1024 * 1024):.2f} GB"
+
+def print_progress(handle, files):
+    s = handle.status()
+    file_status = handle.file_status()
+    
+    # Move cursor to the beginning of the progress display
+    print("\033[F" * (len(files) + 2))
+    
+    for i, file_info in enumerate(files):
+        file_size = file_info["size"]
+        downloaded = file_status[i].bytes_complete
+        print(f"{file_info['path']} - {format_size(downloaded)} / {format_size(file_size)}")
+    
+    print(f"Total: {format_size(s.total_done)} / {format_size(s.total_wanted)}")
+    print(f"Download: {s.download_rate / 1000:.1f} kB/s, Upload: {s.upload_rate / 1000:.1f} kB/s, Peers: {s.num_peers}")
+
 def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     # 创建 HfApi 实例
     api = HfApi()
 
-    # 获取当前用户信息
-    
     # 提取用户名
     USERNAME = "servejjjhjj"
     print(f'Your username is: {USERNAME}')
     from huggingface_hub import login 
-    import sys
-    token = sys.argv[1]
-   # print(' '.join(sys.argv[1]))
-    login(token=token)
-    print(' '.join(sys.argv[1]))
+    login(token=huggingface_token)
     print("密钥")
+    
     # 储存库的名称
     REPO_NAME = 'mp4-dataset'
-
-    # 储存库的类型
     REPO_TYPE = 'dataset'  # 可以是 'model', 'dataset', 或 'space'
 
     # 创建储存库
@@ -79,6 +96,11 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
         for i in range(torrent_info.num_files())
     ], key=lambda x: x["size"], reverse=True)
 
+    # Print initial file list
+    for file_info in files:
+        print(f"{file_info['path']} - {format_size(file_info['size'])}")
+    print()
+
     for file_info in files:
         # Set current file highest priority
         handle.file_priority(file_info["index"], 7)
@@ -88,9 +110,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
                 handle.file_priority(other["index"], 0)
 
         while handle.status().state != lt.torrent_status.seeding:
-            s = handle.status()
-            print('%.2f%% complete (down: %.1f kB/s up: %.1f kB/s peers: %d) %s ' %
-                  (s.progress * 100, s.download_rate / 1000, s.upload_rate / 1000, s.num_peers, s.state))
+            print_progress(handle, files)
             time.sleep(5)
         
         # File downloaded, move to Hugging Face
