@@ -23,7 +23,7 @@ jobs:
       - name: Install requirements
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install requests huggingface_hub libtorrent
+          pip3 install requests huggingface_hub libtorrent websockets
       - name: Run        
         env:
          SCKEY: ${{ secrets.SCKEY }}
