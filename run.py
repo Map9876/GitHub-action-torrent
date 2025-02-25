@@ -32,10 +32,9 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     api = HfApi()
 
     # 获取当前用户信息
-    user_info = api.whoami(token=huggingface_token)
-
+    
     # 提取用户名
-    USERNAME = user_info['name']
+    USERNAME = "servejjjhjj"
     print(f'Your username is: {USERNAME}')
 
     # 储存库的名称
