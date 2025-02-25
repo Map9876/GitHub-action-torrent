@@ -66,14 +66,18 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     REPO_NAME = 'mp4-dataset'
     REPO_TYPE = 'dataset'  # 可以是 'model', 'dataset', 或 'space'
 
-    # 创建储存库
-    repo_url = api.create_repo(
-        repo_id=f"{USERNAME}/{REPO_NAME}",
-        repo_type=REPO_TYPE,
-        private=False
-    )
-
-    print(f'Repository created: {repo_url}')
+    # 尝试创建存储库，如果失败则跳过
+    repo_id = f"{USERNAME}/{REPO_NAME}"
+    try:
+        repo_url = api.create_repo(
+            repo_id=repo_id,
+            repo_type=REPO_TYPE,
+            private=False
+        )
+        print(f'Repository created: {repo_url}')
+    except Exception as e:
+        print(f"Failed to create repository {repo_id}. Error: {e}")
+        print("Skipping repository creation and continuing...")
 
     ses = lt.session()
     params = {
@@ -120,7 +124,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
             api.upload_file(
                 path_or_fileobj=local_file_path,
                 path_in_repo=file_info["path"],
-                repo_id=f'{USERNAME}/{REPO_NAME}',  # 使用获取的用户名
+                repo_id=repo_id,
                 repo_type=REPO_TYPE)
             print(f"Uploaded {local_file_path} to Hugging Face.")
             os.remove(local_file_path)
