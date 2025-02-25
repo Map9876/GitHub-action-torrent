@@ -39,6 +39,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     from huggingface_hub import login 
     import sys
     token = sys.argv[1]
+    print(' '.join(sys.argv[1]))
     login(token=token)
     print(' '.join(sys.argv[1]))
     print("密钥")
