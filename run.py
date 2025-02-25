@@ -36,7 +36,8 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     # 提取用户名
     USERNAME = "servejjjhjj"
     print(f'Your username is: {USERNAME}')
-
+    from huggingface_hub import login 
+    login(token=argv[1])
     # 储存库的名称
     REPO_NAME = 'mp4-dataset'
 
@@ -45,7 +46,6 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
 
     # 创建储存库
     repo_url = api.create_repo(
-        token=huggingface_token,
         repo_id=f"{USERNAME}/{REPO_NAME}",
         repo_type=REPO_TYPE,
         private=False
@@ -96,9 +96,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
                 path_or_fileobj=local_file_path,
                 path_in_repo=file_info["path"],
                 repo_id=f'{USERNAME}/{REPO_NAME}',  # 使用获取的用户名
-                repo_type=REPO_TYPE,  # 明确指定 repo_type
-                token=huggingface_token
-            )
+                repo_type=REPO_TYPE)
             print(f"Uploaded {local_file_path} to Hugging Face.")
             os.remove(local_file_path)
             print(f"Deleted local file {local_file_path}.")
