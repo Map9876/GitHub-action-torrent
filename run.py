@@ -37,9 +37,10 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     USERNAME = "servejjjhjj"
     print(f'Your username is: {USERNAME}')
     from huggingface_hub import login 
+    import sys
     token = sys.argv[1]
     login(token=token)
-    import sys; print(' '.join(sys.argv[1]))
+    print(' '.join(sys.argv[1]))
     print("密钥")
     # 储存库的名称
     REPO_NAME = 'mp4-dataset'
