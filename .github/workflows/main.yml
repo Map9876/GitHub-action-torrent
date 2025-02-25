@@ -27,7 +27,7 @@ jobs:
       - name: Run        
         env:
          SCKEY: ${{ secrets.SCKEY }}
-
+        shell: bash
         run: sudo bash ./run.sh ${{ secrets.HUGGINGFACE }}
 
 
