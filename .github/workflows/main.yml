@@ -25,7 +25,7 @@ jobs:
           python3 -m pip install --upgrade pip
           pip3 install requests huggingface_hub libtorrent
       - name: Run
-        run: python3 ./run.py {{ secrets.huggingface }}
+        run: python3 ./run.py {{ secrets.HUGGINGFACE }}
 
 
       - name: Commit
