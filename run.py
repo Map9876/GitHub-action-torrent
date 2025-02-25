@@ -46,7 +46,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     # 创建储存库
     repo_url = api.create_repo(
         token=huggingface_token,
-        name=REPO_NAME,
+        repo_id=f"{USERNAME}/{REPO_NAME}",
         repo_type=REPO_TYPE,
         private=False
     )
