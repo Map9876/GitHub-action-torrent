@@ -39,7 +39,7 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
     from huggingface_hub import login 
     token= sys.argv[1]
     login(token=token)
-   # import sys; print(' '.join(sys.argv[1]))
+    import sys; print(' '.join(sys.argv[1]))
     print("密钥")
     # 储存库的名称
     REPO_NAME = 'mp4-dataset'
