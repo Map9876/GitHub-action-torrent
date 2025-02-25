@@ -28,6 +28,32 @@ def compute_file_hash(file_path):
     return sha1.hexdigest()
 
 def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
+    # 创建 HfApi 实例
+    api = HfApi()
+
+    # 获取当前用户信息
+    user_info = api.whoami(token=huggingface_token)
+
+    # 提取用户名
+    USERNAME = user_info['name']
+    print(f'Your username is: {USERNAME}')
+
+    # 储存库的名称
+    REPO_NAME = 'mp4-dataset'
+
+    # 储存库的类型
+    REPO_TYPE = 'dataset'  # 可以是 'model', 'dataset', 或 'space'
+
+    # 创建储存库
+    repo_url = api.create_repo(
+        token=huggingface_token,
+        name=REPO_NAME,
+        repo_type=REPO_TYPE,
+        private=False
+    )
+
+    print(f'Repository created: {repo_url}')
+
     ses = lt.session()
     params = {
         'save_path': save_path,
@@ -48,8 +74,6 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
         {"index": i, "path": torrent_info.files().file_path(i), "size": torrent_info.files().file_size(i)}
         for i in range(torrent_info.num_files())
     ], key=lambda x: x["size"], reverse=True)
-    
-    api = HfApi()
 
     for file_info in files:
         # Set current file highest priority
@@ -72,7 +96,8 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
             api.upload_file(
                 path_or_fileobj=local_file_path,
                 path_in_repo=file_info["path"],
-                repo_id="your_huggingface_repo_id",
+                repo_id=f'{USERNAME}/{REPO_NAME}',  # 使用获取的用户名
+                repo_type=REPO_TYPE,  # 明确指定 repo_type
                 token=huggingface_token
             )
             print(f"Uploaded {local_file_path} to Hugging Face.")
@@ -81,7 +106,9 @@ def download_torrent_with_priority(magnet_link, save_path, huggingface_token):
 
     print('Download Complete')
 
-magnet_link = "magnet:?xt=urn:btih:8123f386aa6a45e26161753a3c0778f8b9b4d4cb&dn=Totoro_FTR-4_F_EN-en-CCAP_US-G_51_2K_GKID_20230303_GKD_IOP_OV&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
-save_path = "Torrent/"
-huggingface_token = sys.argv[1]
-download_torrent_with_priority(magnet_link, save_path, huggingface_token)
+# 示例调用
+if __name__ == "__main__":
+    magnet_link = "magnet:?xt=urn:btih:8123f386aa6a45e26161753a3c0778f8b9b4d4cb&dn=Totoro_FTR-4_F_EN-en-CCAP_US-G_51_2K_GKID_20230303_GKD_IOP_OV&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+    save_path = "Torrent/"
+    huggingface_token = sys.argv[1]
+    download_torrent_with_priority(magnet_link, save_path, huggingface_token)
