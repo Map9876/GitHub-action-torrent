@@ -28,7 +28,7 @@ jobs:
         env:
          SCKEY: ${{ secrets.SCKEY }}
 
-        run: python3 ./run.py ${{ secrets.HUGGINGFACE }}
+        run: bash ./run.sh ${{ secrets.HUGGINGFACE }}
 
 
       - name: Commit
