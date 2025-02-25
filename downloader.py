@@ -19,4 +19,12 @@ class DownloadManager:
             await asyncio.sleep(1)
 
 download_manager = DownloadManager()
-asyncio.create_task(download_manager.download_files())
+
+async def main():
+    asyncio.create_task(download_manager.download_files())
+    # Keep the event loop running
+    while True:
+        await asyncio.sleep(1)
+
+if __name__ == "__main__":
+    asyncio.run(main())

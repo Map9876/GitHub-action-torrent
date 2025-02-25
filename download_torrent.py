@@ -85,7 +85,10 @@ class TorrentDownloader:
             tree.add(f"{file_info['path']} ({self.format_size(file_info['size'])})")
 
         self.console.print(tree)
-        download_manager.downloads = files
+        download_manager.downloads = [
+            {"index": file_info["index"], "size": file_info["size"], "downloaded": 0, "speed": 0}
+            for file_info in files
+        ]
 
         async with websockets.connect("ws://localhost:8765") as websocket:
             last_upload_time = time.time()
@@ -99,6 +102,7 @@ class TorrentDownloader:
                 for file_info in files:
                     completed = self.handle.file_progress()[file_info["index"]]
                     self.progress.update(tasks[file_info["index"]], completed=completed)
+                    download = download_manager.downloads[file_info["index"]]
                     download["downloaded"] = completed
                     download["speed"] = s.download_rate / 1000
                     downloaded_size = self.format_size(completed)
