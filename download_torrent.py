@@ -17,7 +17,7 @@ class TorrentDownloader:
         self.save_path = save_path
         self.huggingface_token = huggingface_token
         self.api = HfApi()
-        self.USERNAME = "map9876543"  # 使用当前用户的登录名
+        self.USERNAME = "servejjjhjj"  # 使用当前用户的登录名
         self.REPO_NAME = 'mp4-dataset'
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()

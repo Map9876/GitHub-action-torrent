@@ -13,7 +13,11 @@ def format_size(size):
         size /= 1024
 
 class TorrentDownloader:
+<<<<<<< HEAD
     def __init__(self, magnet_link, save_path, huggingface_token):
+=======
+    def __init__(self, magnet_link, save_path, huggingface_token, download_manager):
+>>>>>>> 6afd96d (第二次)
         self.magnet_link = magnet_link
         self.save_path = save_path
         self.pieces_folder = os.path.join(save_path, "pieces")
@@ -21,11 +25,19 @@ class TorrentDownloader:
         self.progress_file = os.path.join(save_path, "download_progress.json")
         self.huggingface_token = huggingface_token
         self.api = HfApi()
+<<<<<<< HEAD
         self.USERNAME = "map9876543"
+=======
+        self.USERNAME = "servejjjhjj"
+>>>>>>> 6afd96d (第二次)
         self.REPO_NAME = 'mp4-dataset'
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
         self.UPLOAD_INTERVAL = 5 * 3600  # 5小时
+<<<<<<< HEAD
+=======
+        self.download_manager = download_manager
+>>>>>>> 6afd96d (第二次)
         
         os.makedirs(self.pieces_folder, exist_ok=True)
 
@@ -117,9 +129,18 @@ class TorrentDownloader:
         while handle.status().state != lt.torrent_status.seeding:
             s = handle.status()
             current_time = time.time()
+<<<<<<< HEAD
             
             # 每5小时上传一次数据块
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
+=======
+            if current_time - last_status_update >= 1:  # 每秒更新一次UI
+                self.update_download_status(handle, last_uploaded_piece)
+                last_status_update = current_time
+            # 每5小时上传一次数据块
+            if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
+
+>>>>>>> 6afd96d (第二次)
                 current_piece = int(s.progress * torrent_info.num_pieces())
                 
                 if current_piece > last_uploaded_piece:
@@ -172,4 +193,8 @@ if __name__ == "__main__":
     save_path = "Torrent/"
     huggingface_token = sys.argv[1]
     downloader = TorrentDownloader(magnet_link, save_path, huggingface_token)
+<<<<<<< HEAD
     downloader.download()
+=======
+    downloader.download()
+>>>>>>> 6afd96d (第二次)
