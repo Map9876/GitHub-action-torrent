@@ -86,67 +86,79 @@ class TorrentDownloader:
         try:
             status = handle.status()
             torrent_file = status.torrent_file
+            
             if not torrent_file:
                 return
+            
+            # 获取状态字符串
+            state_map = {
+                0: 'queued',
+                1: 'checking',
+                2: 'downloading metadata',
+                3: 'downloading',
+                4: 'finished',
+                5: 'seeding',
+                6: 'allocating'
+            }
+            state_str = state_map.get(status.state, 'unknown')
             
             file_progress = handle.file_progress()
             files_status = []
             total_downloaded = 0
             total_size = 0
 
-            # 获取所有文件的进度
-            for file_index in range(torrent_file.num_files()):
-                file_path = torrent_file.files().file_path(file_index)
-                file_size = torrent_file.files().file_size(file_index)
-                downloaded = file_progress[file_index]
-                
-                # 计算单个文件的下载速度（按大小比例分配总下载速度）
-                file_speed = (status.download_rate * file_size) / torrent_file.total_size() if torrent_file.total_size() > 0 else 0
-                
-                files_status.append({
-                    "index": file_index,
-                    "path": file_path,
-                    "size": file_size,
-                    "downloaded": downloaded,
-                    "speed": file_speed,
-                    "progress": (downloaded / file_size * 100) if file_size > 0 else 0,
-                    "state": status.state_str
-                })
-                
-                total_downloaded += downloaded
-                total_size += file_size
+            try:
+                # 获取所有文件的进度
+                for file_index in range(torrent_file.num_files()):
+                    try:
+                        file_path = torrent_file.files().file_path(file_index)
+                        file_size = torrent_file.files().file_size(file_index)
+                        downloaded = file_progress[file_index]
+                        
+                        # 安全计算下载速度
+                        file_speed = 0
+                        if torrent_file.total_size() > 0:
+                            file_speed = (status.download_rate * file_size) / torrent_file.total_size()
+                        
+                        files_status.append({
+                            "index": file_index,
+                            "path": file_path,
+                            "size": file_size,
+                            "downloaded": downloaded,
+                            "speed": file_speed,
+                            "progress": (downloaded / file_size * 100) if file_size > 0 else 0,
+                            "state": state_str
+                        })
+                        
+                        total_downloaded += downloaded
+                        total_size += file_size
+                    except Exception as e:
+                        print(f"Error processing file {file_index}: {e}")
+                        continue
 
-            # 更新UI
-            download_manager.update_status(
-                files_status,
-                status.num_peers,
-                (total_downloaded / total_size * 100) if total_size > 0 else 0
-            )
+                # 安全计算总进度
+                total_progress = 0
+                if total_size > 0:
+                    total_progress = (total_downloaded / total_size * 100)
 
-            # 打印命令行进度
-            print(f'\rProgress: {(total_downloaded / total_size * 100):.2f}% '
-                  f'Speed: {format_size(status.download_rate)}/s '
-                  f'Peers: {status.num_peers}', end='', flush=True)
+                # 更新UI
+                download_manager.update_status(
+                    files_status,
+                    status.num_peers,
+                    total_progress
+                )
+
+                # 打印命令行进度
+                print(f'\rProgress: {total_progress:.2f}% '
+                      f'Speed: {format_size(status.download_rate)}/s '
+                      f'Peers: {status.num_peers} '
+                      f'State: {state_str}', end='', flush=True)
+
+            except Exception as e:
+                print(f"\nError calculating progress: {e}")
 
         except Exception as e:
-            print(f"Error updating UI: {e}")
-
-    async def save_piece(self, handle, piece_index):
-        try:
-            handle.read_piece(piece_index)
-            for _ in range(100):  # 10秒超时
-                alerts = self.session.pop_alerts()
-                for alert in alerts:
-                    if isinstance(alert, lt.read_piece_alert) and alert.piece == piece_index:
-                        piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
-                        with open(piece_path, "wb") as f:
-                            f.write(alert.buffer)
-                        return piece_path
-                await asyncio.sleep(0.1)
-            raise TimeoutError(f"Timeout waiting for piece {piece_index}")
-        except Exception as e:
-            print(f"\nError saving piece {piece_index}: {e}")
-            return None
+            print(f"\nError in update_ui_status: {e}")
 
     async def download(self):
         print(f'Current Date and Time (UTC): {datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")}')
@@ -163,6 +175,12 @@ class TorrentDownloader:
         except Exception as e:
             print(f'Repository note: {e}')
 
+        # 设置 DHT
+        self.session.add_dht_router("router.bittorrent.com", 6881)
+        self.session.add_dht_router("router.utorrent.com", 6881)
+        self.session.add_dht_router("dht.transmissionbt.com", 6881)
+
+        # 创建 torrent handle
         atp = lt.add_torrent_params()
         atp.url = self.magnet_link
         atp.save_path = self.save_path
@@ -170,7 +188,10 @@ class TorrentDownloader:
 
         print('Downloading metadata...')
         while not handle.status().has_metadata:
-            self.update_ui_status(handle)
+            try:
+                self.update_ui_status(handle)
+            except Exception as e:
+                print(f"Error during metadata download: {e}")
             await asyncio.sleep(1)
 
         print('\nGot metadata, starting download...')
@@ -182,17 +203,6 @@ class TorrentDownloader:
 
         print(f"Total size: {format_size(torrent_file.total_size())}")
         print(f"Number of pieces: {torrent_file.num_pieces()}")
-
-        # 添加多个tracker以提高连接性
-        trackers = [
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://open.stealth.si:80/announce",
-            "udp://tracker.torrent.eu.org:451/announce",
-            "udp://tracker.moeking.me:6969/announce",
-            "udp://exodus.desync.com:6969/announce"
-        ]
-        for tracker in trackers:
-            handle.add_tracker({"url": tracker})
 
         # 从之前的进度恢复
         progress_data = self.load_progress_from_hf()
@@ -269,3 +279,6 @@ if __name__ == "__main__":
         print("\nDownload interrupted by user")
     except Exception as e:
         print(f"Error during download: {e}")
+        
+        
+        

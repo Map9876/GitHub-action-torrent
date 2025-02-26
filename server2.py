@@ -23,15 +23,33 @@ def start_http_server():
     httpd.serve_forever()
 
 def read_output(pipe, prefix):
-    try:
-        for line in iter(pipe.readline, ''):
-            if line:
-                line_str = line if isinstance(line, str) else line.decode()
-                print(f"{prefix}: {line_str.strip()}")
-    except Exception as e:
-        print(f"Error in read_output: {str(e)}")
+    """读取并打印输出流"""
+    while True:
+        try:
+            line = pipe.readline()
+            if not line:
+                break
+            
+            line_str = line if isinstance(line, str) else line.decode()
+            
+            # 特别关注 cloudflared 链接
+            if any(x in line_str.lower() for x in ['trycloudflare.com', 'cloudflare.com']):
+                print("\n" + "="*50)
+                print("CLOUDFLARED PUBLIC URL:")
+                print(line_str.strip())
+                print("="*50 + "\n")
+            
+            # 始终打印输出
+            print(f"{prefix}: {line_str.strip()}")
+            sys.stdout.flush()  # 确保立即输出
+            
+        except Exception as e:
+            print(f"Error reading output: {e}")
+            break
 
 def start_cloudflared():
+    """启动 cloudflared 并实时显示输出"""
+    print("\nStarting cloudflared tunnel...")
     try:
         process = subprocess.Popen(
             ["cloudflared", "tunnel", "--url", "http://localhost:8000"],
@@ -41,11 +59,21 @@ def start_cloudflared():
             universal_newlines=True
         )
         
-        stdout_thread = threading.Thread(target=read_output, args=(process.stdout, "CLOUDFLARED STDOUT"))
-        stderr_thread = threading.Thread(target=read_output, args=(process.stderr, "CLOUDFLARED STDERR"))
+        # 创建并启动输出监控线程
+        stdout_thread = threading.Thread(
+            target=read_output, 
+            args=(process.stdout, "CLOUDFLARED"),
+            name="CloudflaredStdout"
+        )
+        stderr_thread = threading.Thread(
+            target=read_output, 
+            args=(process.stderr, "CLOUDFLARED ERR"),
+            name="CloudflaredStderr"
+        )
         
         stdout_thread.daemon = True
         stderr_thread.daemon = True
+        
         stdout_thread.start()
         stderr_thread.start()
         
