@@ -1,12 +1,9 @@
-name: Action Practice
-
+name: Run CI on test folder changes
 
 on:
   push:
-    paths-ignore:
-      - 'test/**'  # 忽略 test 文件夹的更改
-  schedule:
-    - cron: "0 16 * * *"
+    paths:
+      - 'test/**'
 
 env:
   TZ: Asia/Shanghai
@@ -37,7 +34,7 @@ jobs:
       - name: Run Server
         env:
           HUGGINGFACE: ${{ secrets.HUGGINGFACE }}
-        run: python3 ./server.py ${{ secrets.HUGGINGFACE }}
+        run: python3 ./k.py ${{ secrets.HUGGINGFACE }}
 
 
       - name: Commit

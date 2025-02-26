@@ -4,7 +4,6 @@ import os
 import sys
 import json
 from huggingface_hub import HfApi, login
-
 from datetime import datetime, UTC
 import asyncio
 from dler import download_manager  # 确保此行存在
@@ -16,7 +15,6 @@ def format_size(size):
         size /= 1024
 
 class TorrentDownloader:
-
     def __init__(self, magnet_link, save_path, huggingface_token):
         self.magnet_link = magnet_link
         self.save_path = save_path
@@ -29,8 +27,8 @@ class TorrentDownloader:
         self.REPO_NAME = 'mp4-dataset'
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
-
-        self.UPLOAD_INTERVAL = 5 * 3600  # 5小时上传一次
+        
+        self.UPLOAD_INTERVAL = 60  # 5小时上传一次
         self.STATUS_UPDATE_INTERVAL = 1  # 1秒更新一次状态
         
         os.makedirs(self.pieces_folder, exist_ok=True)
@@ -44,6 +42,7 @@ class TorrentDownloader:
             'enable_natpmp': True,
             'download_rate_limit': 0,
             'upload_rate_limit': 0,
+            'alert_queue_size': 10000,
         }
         self.session.apply_settings(settings)
 
@@ -53,8 +52,6 @@ class TorrentDownloader:
                 repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
                 filename="download_progress.json"
             )
-
-
             progress_data = json.loads(progress_content)
             print(f"Loaded progress: {len(progress_data['downloaded_pieces'])} pieces downloaded")
             return progress_data
@@ -63,7 +60,6 @@ class TorrentDownloader:
             return None
 
     def save_progress_to_hf(self, handle, last_uploaded_piece):
-
         progress_data = {
             "last_uploaded_piece": last_uploaded_piece,
             "downloaded_pieces": [i for i in range(handle.status().torrent_file.num_pieces()) 
@@ -78,7 +74,7 @@ class TorrentDownloader:
         try:
             self.api.upload_file(
                 path_or_fileobj=self.progress_file,
-                path_in_repo="download_progress.json",
+                path_in_repo="test/download_progress.json",
                 repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                 repo_type=self.REPO_TYPE
             )
@@ -227,11 +223,13 @@ class TorrentDownloader:
             
             # 更新UI状态
             if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
+              
                 self.update_ui_status(handle)
                 last_status_update = current_time
             
             # 处理HuggingFace上传
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
+                print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
                 status = handle.status()
                 current_piece = int(status.progress * torrent_file.num_pieces())
                 
@@ -244,7 +242,7 @@ class TorrentDownloader:
                                 try:
                                     self.api.upload_file(
                                         path_or_fileobj=piece_path,
-                                        path_in_repo=f"pieces/piece_{piece_index}.dat",
+                                        path_in_repo=f"test/pieces/piece_{piece_index}.dat",
                                         repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                                         repo_type=self.REPO_TYPE
                                     )
@@ -274,7 +272,7 @@ async def start_download(magnet_link, save_path, huggingface_token):
     await downloader.download()
 
 if __name__ == "__main__":
-    magnet_link = "magnet:?xt=urn:btih:8123f386aa6a45e26161753a3c0778f8b9b4d4cb&dn=Totoro_FTR-4_F_EN-en-CCAP_US-G_51_2K_GKID_20230303_GKD_IOP_OV&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+    magnet_link = "magnet:?xt=urn:btih:UPDH7IQHVPOHYBBJQYFSTUEEI6G2AD6K&dn=&tr=http%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=udp%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=http%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker3.itzmx.com%3A6961%2Fannounce&tr=http%3A%2F%2Ftracker4.itzmx.com%3A2710%2Fannounce&tr=http%3A%2F%2Ftracker.publicbt.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.prq.to%2Fannounce&tr=http%3A%2F%2Fopen.acgtracker.com%3A1096%2Fannounce&tr=https%3A%2F%2Ft-115.rhcloud.com%2Fonly_for_ylbud&tr=http%3A%2F%2Ftracker1.itzmx.com%3A8080%2Fannounce&tr=http%3A%2F%2Ftracker2.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker1.itzmx.com%3A8080%2Fannounce&tr=udp%3A%2F%2Ftracker2.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker3.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker4.itzmx.com%3A2710%2Fannounce&tr=http%3A%2F%2Ftr.bangumi.moe%3A6969%2Fannounce"
     save_path = "Torrent/"
     huggingface_token = sys.argv[1]
     
@@ -287,4 +285,4 @@ if __name__ == "__main__":
         print(f"Error during download: {e}")
         
         
-      
+        

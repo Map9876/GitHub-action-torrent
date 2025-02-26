@@ -1,4 +1,4 @@
-name: Action Practice
+name: Action k
 
 
 on:
@@ -37,7 +37,7 @@ jobs:
       - name: Run Server
         env:
           HUGGINGFACE: ${{ secrets.HUGGINGFACE }}
-        run: python3 ./server.py ${{ secrets.HUGGINGFACE }}
+        run: python3 ./k.py ${{ secrets.HUGGINGFACE }}
 
 
       - name: Commit
