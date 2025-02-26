@@ -3,7 +3,7 @@ import os
 import asyncio
 import json
 import time
-from huggingface_hub import HfApi, login, RepositoryNotFoundError
+from huggingface_hub import HfApi, login
 from rich.console import Console
 from rich.progress import Progress
 from rich.tree import Tree
@@ -41,13 +41,6 @@ class TorrentDownloader:
     async def ensure_repo_exists(self):
         """确保仓库存在，如果不存在则创建"""
         try:
-            repo_info = self.api.repo_info(
-                repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
-                repo_type=self.REPO_TYPE
-            )
-            self.console.print(f'Using existing repository: {repo_info.url}')
-            return repo_info.url
-        except RepositoryNotFoundError:
             repo_url = self.api.create_repo(
                 repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
                 repo_type=self.REPO_TYPE,
@@ -56,7 +49,7 @@ class TorrentDownloader:
             self.console.print(f'Created new repository: {repo_url}')
             return repo_url
         except Exception as e:
-            self.console.print(f'[red]Error with repository: {str(e)}')
+            self.console.print(f'[red]have with repository already: {str(e)}')
             raise
 
     async def handle_piece_finished(self, alert, websocket):
