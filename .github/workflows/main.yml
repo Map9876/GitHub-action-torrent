@@ -3,6 +3,8 @@ name: Action Practice
 
 on:
   push:
+    paths-ignore:
+      - 'test/**'  # 忽略 test 文件夹的更改
   schedule:
     - cron: "0 16 * * *"
 

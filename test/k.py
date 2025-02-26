@@ -27,7 +27,7 @@ class TorrentDownloader:
         self.REPO_NAME = 'mp4-dataset'
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
-        self.UPLOAD_INTERVAL = 5 * 3600  # 5小时上传一次
+        self.UPLOAD_INTERVAL = 60  # 5小时上传一次
         self.STATUS_UPDATE_INTERVAL = 1  # 1秒更新一次状态
         
         os.makedirs(self.pieces_folder, exist_ok=True)
@@ -72,7 +72,7 @@ class TorrentDownloader:
         try:
             self.api.upload_file(
                 path_or_fileobj=self.progress_file,
-                path_in_repo="download_progress.json",
+                path_in_repo="test/download_progress.json",
                 repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                 repo_type=self.REPO_TYPE
             )
@@ -238,7 +238,7 @@ class TorrentDownloader:
                                 try:
                                     self.api.upload_file(
                                         path_or_fileobj=piece_path,
-                                        path_in_repo=f"pieces/piece_{piece_index}.dat",
+                                        path_in_repo=f"test/pieces/piece_{piece_index}.dat",
                                         repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                                         repo_type=self.REPO_TYPE
                                     )
