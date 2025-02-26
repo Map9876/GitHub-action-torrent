@@ -5,7 +5,10 @@ import sys
 import json
 from huggingface_hub import HfApi, login
 from datetime import datetime
-from server2 import download_manager
+import asyncio
+import hashlib
+from dler import download_manager
+
 def format_size(size):
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if size < 1024:
@@ -13,7 +16,7 @@ def format_size(size):
         size /= 1024
 
 class TorrentDownloader:
-    def __init__(self, magnet_link, save_path, huggingface_token, download_manager):
+    def __init__(self, magnet_link, save_path, huggingface_token):
         self.magnet_link = magnet_link
         self.save_path = save_path
         self.pieces_folder = os.path.join(save_path, "pieces")
@@ -26,25 +29,36 @@ class TorrentDownloader:
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
         self.UPLOAD_INTERVAL = 5 * 3600  # 5小时
-        self.download_manager = download_manager
+        self.STATUS_UPDATE_INTERVAL = 1  # 1秒更新一次状态
         
         os.makedirs(self.pieces_folder, exist_ok=True)
+        os.makedirs(self.save_path, exist_ok=True)
+
+        settings = {
+            'alert_mask': lt.alert.category_t.all_categories,
+            'enable_dht': True,
+            'enable_lsd': True,
+            'enable_upnp': True,
+            'enable_natpmp': True,
+            'download_rate_limit': 0,
+            'upload_rate_limit': 0,
+        }
+        self.session.apply_settings(settings)
 
     def load_progress_from_hf(self):
-        """从HuggingFace加载进度"""
         try:
-            # 尝试从HuggingFace下载进度文件
             progress_content = self.api.download_file(
                 repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
                 filename="download_progress.json"
             )
-            return json.loads(progress_content)
+            progress_data = json.loads(progress_content)
+            print(f"Loaded progress: {len(progress_data['downloaded_pieces'])} pieces downloaded")
+            return progress_data
         except Exception as e:
             print(f"No previous progress found on HuggingFace: {e}")
             return None
 
     def save_progress_to_hf(self, handle, last_uploaded_piece):
-        """保存进度到HuggingFace"""
         progress_data = {
             "last_uploaded_piece": last_uploaded_piece,
             "downloaded_pieces": [i for i in range(handle.get_torrent_info().num_pieces()) 
@@ -53,127 +67,160 @@ class TorrentDownloader:
             "total_pieces": handle.get_torrent_info().num_pieces()
         }
         
-        # 保存到本地文件
         with open(self.progress_file, 'w') as f:
             json.dump(progress_data, f)
         
-        # 上传到HuggingFace
-        self.api.upload_file(
-            path_or_fileobj=self.progress_file,
-            path_in_repo="download_progress.json",
-            repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
-            repo_type=self.REPO_TYPE
-        )
+        try:
+            self.api.upload_file(
+                path_or_fileobj=self.progress_file,
+                path_in_repo="download_progress.json",
+                repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
+                repo_type=self.REPO_TYPE
+            )
+            print(f"Progress saved at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception as e:
+            print(f"Error saving progress: {e}")
         return progress_data
 
-    def resume_download(self, handle, progress_data):
-        """根据进度恢复下载"""
-        if not progress_data:
-            return -1
-
-        print(f"Resuming download from piece {progress_data['last_uploaded_piece'] + 1}")
-        print(f"Previously downloaded {len(progress_data['downloaded_pieces'])} of {progress_data['total_pieces']} pieces")
+    def update_download_status(self, handle, last_uploaded_piece):
+        s = handle.status()
+        torrent_info = handle.get_torrent_info()
+        file_progress = handle.file_progress()
         
-        # 设置已经上传的数据块为已完成
-        for piece in range(progress_data['last_uploaded_piece'] + 1):
-            if piece in progress_data['downloaded_pieces']:
-                handle.piece_priority(piece, 0)  # 已上传的部分不再下载
-            else:
-                handle.piece_priority(piece, 7)  # 未完成的部分设置高优先级
+        files_status = []
+        total_downloaded = 0
+        total_size = 0
+        
+        for file_index in range(torrent_info.num_files()):
+            file_entry = torrent_info.files()
+            file_path = file_entry.file_path(file_index)
+            file_size = file_entry.file_size(file_index)
+            downloaded = file_progress[file_index]
+            
+            file_speed = (s.download_rate * file_size) / torrent_info.total_size() if torrent_info.total_size() > 0 else 0
+            
+            files_status.append({
+                "index": file_index,
+                "path": file_path,
+                "size": file_size,
+                "downloaded": downloaded,
+                "speed": file_speed,
+                "progress": (downloaded / file_size * 100) if file_size > 0 else 0
+            })
+            
+            total_downloaded += downloaded
+            total_size += file_size
 
-        return progress_data['last_uploaded_piece']
+        download_manager.update_status(
+            files_status,
+            s.num_peers,
+            (total_downloaded / total_size * 100) if total_size > 0 else 0
+        )
 
-    def download(self):
+    async def save_piece(self, handle, piece_index):
+        try:
+            handle.read_piece(piece_index)
+            for _ in range(100):  # 10秒超时
+                alerts = self.session.pop_alerts()
+                for alert in alerts:
+                    if isinstance(alert, lt.read_piece_alert) and alert.piece == piece_index:
+                        piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
+                        with open(piece_path, "wb") as f:
+                            f.write(alert.buffer)
+                        return piece_path
+                await asyncio.sleep(0.1)
+            raise TimeoutError(f"Timeout waiting for piece {piece_index}")
+        except Exception as e:
+            print(f"Error saving piece {piece_index}: {e}")
+            return None
+
+    async def download(self):
         print(f'Current Date and Time (UTC): {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}')
-        print(f"Username: {self.USERNAME}")
         
         login(token=self.huggingface_token)
 
-        # 加载之前的进度
+        try:
+            repo_url = self.api.create_repo(
+                repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
+                repo_type=self.REPO_TYPE,
+                private=False
+            )
+        except Exception as e:
+            print(f'Repository note: {e}')
+
         progress_data = self.load_progress_from_hf()
         
         handle = lt.add_magnet_uri(self.session, self.magnet_link, {
             'save_path': self.save_path,
-            'storage_mode': lt.storage_mode_t.storage_mode_sparse,
+            'storage_mode': lt.storage_mode_t.storage_mode_sparse
         })
         
-        handle.set_sequential_download(1)
-        self.session.start_dht()
-
-        print('Downloading Metadata...')
+        print('Getting metadata...')
         while not handle.has_metadata():
-            time.sleep(1)
+            await asyncio.sleep(1)
 
-        print('Got Metadata, checking previous progress...')
-        last_uploaded_piece = self.resume_download(handle, progress_data)
-        
+        print('Starting download...')
         torrent_info = handle.get_torrent_info()
-        print(f"Total pieces: {torrent_info.num_pieces()}")
-        print(f"Piece length: {format_size(torrent_info.piece_length())}")
-        print(f"Total size: {format_size(torrent_info.total_size())}")
         
+        last_uploaded_piece = -1
+        if progress_data:
+            print("Resuming download...")
+            last_uploaded_piece = progress_data['last_uploaded_piece']
+            for piece in progress_data['downloaded_pieces']:
+                handle.piece_priority(piece, 0)
+
         last_upload_time = time.time()
-        last_progress_save_time = time.time()
+        last_status_update = time.time()
         
+        print(f"Total size: {format_size(torrent_info.total_size())}")
+        print(f"Piece length: {format_size(torrent_info.piece_length())}")
+        print(f"Number of pieces: {torrent_info.num_pieces()}")
+
         while handle.status().state != lt.torrent_status.seeding:
             s = handle.status()
             current_time = time.time()
-            if current_time - last_status_update >= 1:  # 每秒更新一次UI
+            
+            if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
                 self.update_download_status(handle, last_uploaded_piece)
                 last_status_update = current_time
-            # 每5小时上传一次数据块
+            
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
-
                 current_piece = int(s.progress * torrent_info.num_pieces())
                 
                 if current_piece > last_uploaded_piece:
-                    print("\nSaving and uploading new pieces...")
+                    print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
                     for piece_index in range(last_uploaded_piece + 1, current_piece + 1):
                         if handle.have_piece(piece_index):
-                            try:
-                                # 读取并保存数据块
-                                handle.read_piece(piece_index)
-                                for alert in self.session.pop_alerts():
-                                    if isinstance(alert, lt.read_piece_alert) and alert.piece == piece_index:
-                                        piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
-                                        with open(piece_path, "wb") as f:
-                                            f.write(alert.buffer)
-                                        
-                                        # 上传到HuggingFace
-                                        self.api.upload_file(
-                                            path_or_fileobj=piece_path,
-                                            path_in_repo=f"pieces/piece_{piece_index}.dat",
-                                            repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
-                                            repo_type=self.REPO_TYPE
-                                        )
-                                        os.remove(piece_path)
-                                        print(f"Uploaded piece {piece_index}")
-                            except Exception as e:
-                                print(f"Error processing piece {piece_index}: {e}")
+                            piece_path = await self.save_piece(handle, piece_index)
+                            if piece_path:
+                                try:
+                                    self.api.upload_file(
+                                        path_or_fileobj=piece_path,
+                                        path_in_repo=f"pieces/piece_{piece_index}.dat",
+                                        repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
+                                        repo_type=self.REPO_TYPE
+                                    )
+                                    os.remove(piece_path)
+                                    print(f"Uploaded piece {piece_index}")
+                                except Exception as e:
+                                    print(f"Error uploading piece {piece_index}: {e}")
                     
                     last_uploaded_piece = current_piece
-                    # 保存进度
                     self.save_progress_to_hf(handle, last_uploaded_piece)
+                
                 last_upload_time = current_time
             
-            # 每5秒显示一次进度
-            if current_time - last_progress_save_time >= 5:
-                print(
-                    f'Progress: {s.progress * 100:.2f}% | '
-                    f'Speed: {format_size(s.download_rate)}/s | '
-                    f'Pieces: {s.num_pieces}/{torrent_info.num_pieces()} | '
-                    f'Last uploaded: {last_uploaded_piece} | '
-                    f'Peers: {s.num_peers}'
-                )
-                last_progress_save_time = current_time
-            
-            time.sleep(1)
+            await asyncio.sleep(1)
 
         print('Download Complete!')
+        self.save_progress_to_hf(handle, torrent_info.num_pieces() - 1)
+
+async def start_download(magnet_link, save_path, huggingface_token):
+    downloader = TorrentDownloader(magnet_link, save_path, huggingface_token)
+    await downloader.download()
 
 if __name__ == "__main__":
     magnet_link = "magnet:?xt=urn:btih:8123f386aa6a45e26161753a3c0778f8b9b4d4cb&dn=Totoro_FTR-4_F_EN-en-CCAP_US-G_51_2K_GKID_20230303_GKD_IOP_OV&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
     save_path = "Torrent/"
     huggingface_token = sys.argv[1]
-    downloader = TorrentDownloader(magnet_link, save_path, huggingface_token, download_manager)
-    downloader.download()
+    asyncio.run(start_download(magnet_link, save_path, huggingface_token))

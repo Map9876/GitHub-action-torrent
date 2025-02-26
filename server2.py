@@ -4,9 +4,10 @@ import json
 import subprocess
 import sys
 from http.server import SimpleHTTPRequestHandler, HTTPServer
-from k import TorrentDownloader
+from k import start_download
 import threading
 from datetime import datetime
+from dler import download_manager
 
 class CustomHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -53,39 +54,6 @@ def start_cloudflared():
         print(f"Error starting cloudflared: {str(e)}")
         return None
 
-class DownloadManager:
-    def __init__(self):
-        self.connected_clients = set()
-        self.current_status = {
-            "files": [],
-            "peers": 0,
-            "total_progress": 0
-        }
-
-    def update_status(self, files_status, peers, total_progress):
-        self.current_status = {
-            "files": files_status,
-            "peers": peers,
-            "total_progress": total_progress
-        }
-        asyncio.create_task(self.broadcast_status())
-
-    async def register(self, websocket):
-        self.connected_clients.add(websocket)
-        await websocket.send(json.dumps(self.current_status))
-
-    async def unregister(self, websocket):
-        self.connected_clients.remove(websocket)
-
-    async def broadcast_status(self):
-        if self.connected_clients:
-            message = json.dumps(self.current_status)
-            await asyncio.gather(
-                *[client.send(message) for client in self.connected_clients]
-            )
-
-download_manager = DownloadManager()
-
 async def websocket_handler(websocket, path):
     await download_manager.register(websocket)
     try:
@@ -111,12 +79,13 @@ async def main(magnet_link, save_path, huggingface_token):
     # Start the WebSocket server
     websocket_task = asyncio.create_task(start_websocket_server())
 
-    # Start the torrent downloader with the download manager
-    downloader = TorrentDownloader(magnet_link, save_path, huggingface_token, download_manager)
-    await downloader.download()
+    # Start the torrent downloader
+    await start_download(magnet_link, save_path, huggingface_token)
 
 if __name__ == "__main__":
     magnet_link = "your_magnet_link_here"
     save_path = "Torrent/"
     huggingface_token = sys.argv[1]
+    print(f'Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f"Current User's Login: map9876543")
     asyncio.run(main(magnet_link, save_path, huggingface_token))
