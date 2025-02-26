@@ -34,7 +34,7 @@ jobs:
       - name: Run Server
         env:
           HUGGINGFACE: ${{ secrets.HUGGINGFACE }}
-        run: python3 ./k.py ${{ secrets.HUGGINGFACE }}
+        run: python3 ./test/server2.py ${{ secrets.HUGGINGFACE }}
 
 
       - name: Commit
