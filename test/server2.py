@@ -124,7 +124,7 @@ async def main(magnet_link, save_path, huggingface_token):
 
     # 启动下载任务
     download_task = asyncio.create_task(
-        start_download(magnet_link, save_path, huggingface_token)
+        start_download(magnet_link, save_path, huggingface_token))
     
     # 等待所有任务完成
     await asyncio.gather(
