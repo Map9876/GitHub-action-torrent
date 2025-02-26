@@ -4,4 +4,4 @@ sudo dpkg -i cloudflared-linux-amd64.deb
 HUGGINGFACE_TOKEN=$1
 
 # Start the Python server
-python3 server.py $HUGGINGFACE_TOKEN &
+python3 server.py "$HUGGINGFACE_TOKEN" &
