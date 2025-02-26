@@ -1,0 +1,61 @@
+name: Action k
+
+
+on:
+  push:
+  schedule:
+    - cron: "0 16 * * *"
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  # a single job
+  a-job-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Python3
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Explicitly install websockets to ensure it's available
+          pip install websockets
+          
+      - name: Install Cloudflared
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          
+      - name: Run Server
+        env:
+          HUGGINGFACE: ${{ secrets.HUGGINGFACE }}
+        run: python3 ./k.py ${{ secrets.HUGGINGFACE }}
+
+
+      - name: Commit
+        env:
+          GIT_NAME: GitHub Actions[Bot]
+          GIT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        
+        run: |
+          git config --local user.name $GIT_NAME
+          git config --local user.email $GIT_EMAIL
+          git pull
+           
+          
+          git reset --mixed main
+          git add .
+          git commit -m "Github action update at `date '+%Y-%m-%d %H:%M:%S'`."
+          git push
+          
+      - name: Push
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.SECRET_KEY }}
+          branch: main      
