@@ -27,6 +27,7 @@ class TorrentDownloader:
         self.REPO_NAME = 'mp4-dataset'
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
+        
         self.UPLOAD_INTERVAL = 60  # 5小时上传一次
         self.STATUS_UPDATE_INTERVAL = 1  # 1秒更新一次状态
         
@@ -41,6 +42,7 @@ class TorrentDownloader:
             'enable_natpmp': True,
             'download_rate_limit': 0,
             'upload_rate_limit': 0,
+            'alert_queue_size': 10000,
         }
         self.session.apply_settings(settings)
 
@@ -221,11 +223,13 @@ class TorrentDownloader:
             
             # 更新UI状态
             if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
+              
                 self.update_ui_status(handle)
                 last_status_update = current_time
             
             # 处理HuggingFace上传
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
+                print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
                 status = handle.status()
                 current_piece = int(status.progress * torrent_file.num_pieces())
                 
@@ -268,7 +272,7 @@ async def start_download(magnet_link, save_path, huggingface_token):
     await downloader.download()
 
 if __name__ == "__main__":
-    magnet_link = "magnet:?xt=urn:btih:8123f386aa6a45e26161753a3c0778f8b9b4d4cb&dn=Totoro_FTR-4_F_EN-en-CCAP_US-G_51_2K_GKID_20230303_GKD_IOP_OV&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+    magnet_link = "https://c.map987.us.kg/https://share.dmhy.org/topics/view/689845_VCB-Studio_SPYxFAMILY_10-bit_1080p_HEVC_BDRip_S1-S2_MOVIE_Fin.html"
     save_path = "Torrent/"
     huggingface_token = sys.argv[1]
     
