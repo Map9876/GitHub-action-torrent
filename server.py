@@ -7,7 +7,6 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 from download_torrent import TorrentDownloader, start_download
 import threading
 
-# HTTP server to serve the web UI
 class CustomHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -21,7 +20,6 @@ def start_http_server():
     print("HTTP server running on http://localhost:8000")
     httpd.serve_forever()
 
-# WebSocket server to handle real-time updates
 async def websocket_handler(websocket, path):
     async for message in websocket:
         await websocket.send(message)
@@ -32,8 +30,14 @@ def start_websocket_server():
 
 def read_output(pipe, prefix):
     """Helper function to read and print output from subprocess pipes"""
-    for line in iter(pipe.readline, b''):
-        print(f"{prefix}: {line.decode().strip()}")
+    try:
+        for line in iter(pipe.readline, ''):
+            if line:  # 确保行不为空
+                # 如果输入已经是字符串，直接使用；如果是字节，则解码
+                line_str = line if isinstance(line, str) else line.decode()
+                print(f"{prefix}: {line_str.strip()}")
+    except Exception as e:
+        print(f"Error in read_output: {str(e)}")
 
 def start_cloudflared():
     try:
@@ -42,45 +46,31 @@ def start_cloudflared():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True  # 这会自动处理文本流而不是字节流
         )
         
-        # Create threads to handle stdout and stderr
-        stdout_thread = threading.Thread(
-            target=read_output, 
-            args=(process.stdout, "CLOUDFLARED STDOUT")
-        )
-        stderr_thread = threading.Thread(
-            target=read_output, 
-            args=(process.stderr, "CLOUDFLARED STDERR")
-        )
+        stdout_thread = threading.Thread(target=read_output, args=(process.stdout, "CLOUDFLARED STDOUT"))
+        stderr_thread = threading.Thread(target=read_output, args=(process.stderr, "CLOUDFLARED STDERR"))
         
-        # Start the threads
         stdout_thread.daemon = True
         stderr_thread.daemon = True
         stdout_thread.start()
         stderr_thread.start()
         
-        # Keep the main process running
         process.wait()
     except Exception as e:
         print(f"Error starting cloudflared: {str(e)}")
 
 async def main(magnet_link, save_path, huggingface_token):
-    # Start the HTTP server in a separate thread
     http_server_thread = threading.Thread(target=start_http_server)
     http_server_thread.daemon = True
     http_server_thread.start()
 
-    # Start the cloudflared tunnel in a separate thread
     cloudflared_thread = threading.Thread(target=start_cloudflared)
     cloudflared_thread.daemon = True
     cloudflared_thread.start()
 
-    # Start the WebSocket server
     await start_websocket_server()
-    
-    # Start the torrent downloader
     await start_download(magnet_link, save_path, huggingface_token)
 
 if __name__ == "__main__":

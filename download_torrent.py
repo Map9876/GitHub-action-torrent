@@ -50,7 +50,7 @@ class TorrentDownloader:
             return repo_url
         except Exception as e:
             self.console.print(f'[red]have with repository already: {str(e)}')
-            raise
+            return f"https://huggingface.co/{self.USERNAME}/{self.REPO_NAME}"
 
     async def handle_piece_finished(self, alert, websocket):
         piece_index = alert.piece_index
