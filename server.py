@@ -5,6 +5,7 @@ import subprocess
 import sys
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from download_torrent import TorrentDownloader, start_download
+import threading
 
 # HTTP server to serve the web UI
 class CustomHandler(SimpleHTTPRequestHandler):
@@ -29,22 +30,56 @@ def start_websocket_server():
     websocket_server = websockets.serve(websocket_handler, "localhost", 8765)
     return websocket_server
 
+def read_output(pipe, prefix):
+    """Helper function to read and print output from subprocess pipes"""
+    for line in iter(pipe.readline, b''):
+        print(f"{prefix}: {line.decode().strip()}")
+
 def start_cloudflared():
-    process = subprocess.Popen(
-        ["cloudflared", "tunnel", "--url", "http://localhost:8000"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    for line in process.stdout:
-        print(line.decode().strip())
+    try:
+        process = subprocess.Popen(
+            ["cloudflared", "tunnel", "--url", "http://localhost:8000"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Create threads to handle stdout and stderr
+        stdout_thread = threading.Thread(
+            target=read_output, 
+            args=(process.stdout, "CLOUDFLARED STDOUT")
+        )
+        stderr_thread = threading.Thread(
+            target=read_output, 
+            args=(process.stderr, "CLOUDFLARED STDERR")
+        )
+        
+        # Start the threads
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Keep the main process running
+        process.wait()
+    except Exception as e:
+        print(f"Error starting cloudflared: {str(e)}")
 
 async def main(magnet_link, save_path, huggingface_token):
-    # Start the HTTP server
-    asyncio.create_task(asyncio.to_thread(start_http_server))
-    # Start the cloudflared tunnel
-    asyncio.create_task(asyncio.to_thread(start_cloudflared))
+    # Start the HTTP server in a separate thread
+    http_server_thread = threading.Thread(target=start_http_server)
+    http_server_thread.daemon = True
+    http_server_thread.start()
+
+    # Start the cloudflared tunnel in a separate thread
+    cloudflared_thread = threading.Thread(target=start_cloudflared)
+    cloudflared_thread.daemon = True
+    cloudflared_thread.start()
+
     # Start the WebSocket server
     await start_websocket_server()
+    
     # Start the torrent downloader
     await start_download(magnet_link, save_path, huggingface_token)
 
