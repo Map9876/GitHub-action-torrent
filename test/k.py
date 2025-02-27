@@ -9,6 +9,7 @@ from huggingface_hub import HfApi, login
 from datetime import datetime, UTC
 import asyncio
 from dler import download_manager
+from typing import Optional
 
 def format_size(size):
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
