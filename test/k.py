@@ -1,6 +1,7 @@
 import libtorrent as lt
 import time
 import os
+import sys
 import json
 from huggingface_hub import HfApi, login
 from datetime import datetime, UTC
@@ -8,7 +9,6 @@ import asyncio
 from dler import download_manager
 
 def format_size(size):
-    """格式化文件大小"""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if size < 1024:
             return f"{size:.2f} {unit}"
@@ -49,14 +49,15 @@ class TorrentDownloader:
     async def save_piece(self, handle, piece_index):
         """保存piece到文件"""
         try:
-            piece_size = handle.status().torrent_file.piece_size(piece_index)
             piece_data = handle.read_piece(piece_index)
             if piece_data is None:
+                print(f"Failed to read piece {piece_index}")
                 return None
                 
             piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
             with open(piece_path, 'wb') as f:
                 f.write(piece_data)
+            print(f"Saved piece {piece_index} to {piece_path}")
             return piece_path
         except Exception as e:
             print(f"Error saving piece {piece_index}: {e}")
@@ -84,14 +85,13 @@ class TorrentDownloader:
             "total_pieces": handle.status().torrent_file.num_pieces()
         }
         
-        # 保存到本地文件
         try:
             with open(self.progress_file, 'w') as f:
-                json.dump(progress_data, f)
+                json.dump(progress_data, f, indent=2)
+            print(f"Progress saved to local file")
         except Exception as e:
             print(f"Error saving progress to local file: {e}")
         
-        # 上传到HuggingFace
         try:
             self.api.upload_file(
                 path_or_fileobj=self.progress_file,
@@ -99,7 +99,7 @@ class TorrentDownloader:
                 repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                 repo_type=self.REPO_TYPE
             )
-            print(f"Progress uploaded to HuggingFace at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Progress uploaded to HuggingFace")
         except Exception as e:
             print(f"Error uploading progress to HuggingFace: {e}")
         
@@ -130,50 +130,46 @@ class TorrentDownloader:
             total_downloaded = 0
             total_size = 0
 
-            try:
-                for file_index in range(torrent_file.num_files()):
-                    try:
-                        file_path = torrent_file.files().file_path(file_index)
-                        file_size = torrent_file.files().file_size(file_index)
-                        downloaded = file_progress[file_index]
-                        
-                        file_speed = 0
-                        if torrent_file.total_size() > 0:
-                            file_speed = (status.download_rate * file_size) / torrent_file.total_size()
-                        
-                        files_status.append({
-                            "index": file_index,
-                            "path": file_path,
-                            "size": file_size,
-                            "downloaded": downloaded,
-                            "speed": file_speed,
-                            "progress": (downloaded / file_size * 100) if file_size > 0 else 0,
-                            "state": state_str
-                        })
-                        
-                        total_downloaded += downloaded
-                        total_size += file_size
-                    except Exception as e:
-                        print(f"Error processing file {file_index}: {e}")
-                        continue
+            for file_index in range(torrent_file.num_files()):
+                try:
+                    file_path = torrent_file.files().file_path(file_index)
+                    file_size = torrent_file.files().file_size(file_index)
+                    downloaded = file_progress[file_index]
+                    
+                    file_speed = 0
+                    if torrent_file.total_size() > 0:
+                        file_speed = (status.download_rate * file_size) / torrent_file.total_size()
+                    
+                    files_status.append({
+                        "index": file_index,
+                        "path": file_path,
+                        "size": file_size,
+                        "downloaded": downloaded,
+                        "speed": file_speed,
+                        "progress": (downloaded / file_size * 100) if file_size > 0 else 0,
+                        "state": state_str
+                    })
+                    
+                    total_downloaded += downloaded
+                    total_size += file_size
+                except Exception as e:
+                    print(f"Error processing file {file_index}: {e}")
+                    continue
 
-                total_progress = 0
-                if total_size > 0:
-                    total_progress = (total_downloaded / total_size * 100)
+            total_progress = 0
+            if total_size > 0:
+                total_progress = (total_downloaded / total_size * 100)
 
-                download_manager.update_status(
-                    files_status,
-                    status.num_peers,
-                    total_progress
-                )
+            download_manager.update_status(
+                files_status,
+                status.num_peers,
+                total_progress
+            )
 
-                print(f'\rProgress: {total_progress:.2f}% '
-                      f'Speed: {format_size(status.download_rate)}/s '
-                      f'Peers: {status.num_peers} '
-                      f'State: {state_str}', end='', flush=True)
-
-            except Exception as e:
-                print(f"\nError calculating progress: {e}")
+            print(f'\rProgress: {total_progress:.2f}% '
+                  f'Speed: {format_size(status.download_rate)}/s '
+                  f'Peers: {status.num_peers} '
+                  f'State: {state_str}', end='', flush=True)
 
         except Exception as e:
             print(f"\nError in update_ui_status: {e}")
@@ -220,12 +216,11 @@ class TorrentDownloader:
         print(f"Total size: {format_size(torrent_file.total_size())}")
         print(f"Number of pieces: {torrent_file.num_pieces()}")
 
-        # 从本地文件加载进度
         progress_data = self.load_progress_from_file()
         last_uploaded_piece = -1
         if progress_data:
             print("Resuming from previous progress...")
-            last_uploaded_piece = progress_data['last_uploaded_piece']
+            last_uploaded_piece = progress_data.get('last_uploaded_piece', -1)
             for piece in progress_data['downloaded_pieces']:
                 handle.piece_priority(piece, 0)
 
@@ -245,9 +240,10 @@ class TorrentDownloader:
             
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
                 if current_piece > last_uploaded_piece:
-                    print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
+                    print(f"\nChecking pieces {last_uploaded_piece + 1} to {current_piece} for upload...")
                     for piece_index in range(last_uploaded_piece + 1, current_piece + 1):
                         if handle.have_piece(piece_index):
+                            print(f"Saving piece {piece_index}")
                             piece_path = await self.save_piece(handle, piece_index)
                             if piece_path:
                                 try:
@@ -257,8 +253,8 @@ class TorrentDownloader:
                                         repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                                         repo_type=self.REPO_TYPE
                                     )
-                                    os.remove(piece_path)
                                     print(f"Uploaded piece {piece_index}")
+                                    os.remove(piece_path)
                                 except Exception as e:
                                     print(f"\nError uploading piece {piece_index}: {e}")
                     
@@ -280,3 +276,20 @@ class TorrentDownloader:
 async def start_download(magnet_link, save_path, huggingface_token):
     downloader = TorrentDownloader(magnet_link, save_path, huggingface_token)
     await downloader.download()
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python3 k.py <huggingface_token>")
+        sys.exit(1)
+
+    magnet_link = "magnet:?xt=urn:btih:UPDH7IQHVPOHYBBJQYFSTUEEI6G2AD6K&dn=&tr=http%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=udp%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=http%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker3.itzmx.com%3A6961%2Fannounce&tr=http%3A%2F%2Ftracker4.itzmx.com%3A2710%2Fannounce&tr=http%3A%2F%2Ftracker.publicbt.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.prq.to%2Fannounce&tr=http%3A%2F%2Fopen.acgtracker.com%3A1096%2Fannounce&tr=https%3A%2F%2Ft-115.rhcloud.com%2Fonly_for_ylbud&tr=http%3A%2F%2Ftracker1.itzmx.com%3A8080%2Fannounce&tr=http%3A%2F%2Ftracker2.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker1.itzmx.com%3A8080%2Fannounce&tr=udp%3A%2F%2Ftracker2.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker3.itzmx.com%3A6961%2Fannounce&tr=udp%3A%2F%2Ftracker4.itzmx.com%3A2710%2Fannounce&tr=http%3A%2F%2Ftr.bangumi.moe%3A6969%2Fannounce"
+    save_path = "Torrent/"
+    huggingface_token = sys.argv[1]
+
+    try:
+        asyncio.run(start_download(magnet_link, save_path, huggingface_token))
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
