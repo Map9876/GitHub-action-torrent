@@ -86,7 +86,7 @@ async def monitor_cloudflared(process):
             line_str = line if isinstance(line, str) else line.decode()
             print(f"Cloudflared output: {line_str.strip()}")
             
-            if 'trycloudflare.com' in line_str.lower():
+            if '.trycloudflare.com' in line_str.lower():
                 url = line_str.strip()
                 print("\n" + "="*50)
                 print("CLOUDFLARED PUBLIC URL:")

@@ -6,7 +6,7 @@ import json
 from huggingface_hub import HfApi, login
 from datetime import datetime, UTC
 import asyncio
-from dler import download_manager  # 确保此行存在
+from dler import download_manager
 
 def format_size(size):
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
@@ -28,7 +28,7 @@ class TorrentDownloader:
         self.REPO_TYPE = 'dataset'
         self.session = lt.session()
         
-        self.UPLOAD_INTERVAL = 60  # 5小时上传一次
+        self.UPLOAD_INTERVAL = 60  # 60秒上传一次
         self.STATUS_UPDATE_INTERVAL = 1  # 1秒更新一次状态
         
         os.makedirs(self.pieces_folder, exist_ok=True)
@@ -45,6 +45,22 @@ class TorrentDownloader:
             'alert_queue_size': 10000,
         }
         self.session.apply_settings(settings)
+
+    async def save_piece(self, handle, piece_index):
+        """保存piece到文件"""
+        try:
+            piece_size = handle.status().torrent_file.piece_size(piece_index)
+            piece_data = handle.read_piece(piece_index)
+            if piece_data is None:
+                return None
+                
+            piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
+            with open(piece_path, 'wb') as f:
+                f.write(piece_data)
+            return piece_path
+        except Exception as e:
+            print(f"Error saving piece {piece_index}: {e}")
+            return None
 
     def load_progress_from_hf(self):
         try:
@@ -92,7 +108,6 @@ class TorrentDownloader:
             if not torrent_file:
                 return
             
-            # 获取状态字符串
             state_map = {
                 0: 'queued',
                 1: 'checking',
@@ -110,14 +125,12 @@ class TorrentDownloader:
             total_size = 0
 
             try:
-                # 获取所有文件的进度
                 for file_index in range(torrent_file.num_files()):
                     try:
                         file_path = torrent_file.files().file_path(file_index)
                         file_size = torrent_file.files().file_size(file_index)
                         downloaded = file_progress[file_index]
                         
-                        # 安全计算下载速度
                         file_speed = 0
                         if torrent_file.total_size() > 0:
                             file_speed = (status.download_rate * file_size) / torrent_file.total_size()
@@ -138,19 +151,16 @@ class TorrentDownloader:
                         print(f"Error processing file {file_index}: {e}")
                         continue
 
-                # 安全计算总进度
                 total_progress = 0
                 if total_size > 0:
                     total_progress = (total_downloaded / total_size * 100)
 
-                # 更新UI
                 download_manager.update_status(
                     files_status,
                     status.num_peers,
                     total_progress
                 )
 
-                # 打印命令行进度
                 print(f'\rProgress: {total_progress:.2f}% '
                       f'Speed: {format_size(status.download_rate)}/s '
                       f'Peers: {status.num_peers} '
@@ -177,12 +187,10 @@ class TorrentDownloader:
         except Exception as e:
             print(f'Repository note: {e}')
 
-        # 设置 DHT
         self.session.add_dht_router("router.bittorrent.com", 6881)
         self.session.add_dht_router("router.utorrent.com", 6881)
         self.session.add_dht_router("dht.transmissionbt.com", 6881)
 
-        # 创建 torrent handle
         atp = lt.add_torrent_params()
         atp.url = self.magnet_link
         atp.save_path = self.save_path
@@ -206,7 +214,6 @@ class TorrentDownloader:
         print(f"Total size: {format_size(torrent_file.total_size())}")
         print(f"Number of pieces: {torrent_file.num_pieces()}")
 
-        # 从之前的进度恢复
         progress_data = self.load_progress_from_hf()
         last_uploaded_piece = -1
         if progress_data:
@@ -217,22 +224,20 @@ class TorrentDownloader:
 
         last_upload_time = time.time()
         last_status_update = time.time()
+        current_piece = -1  # Initialize current_piece
 
         while not handle.status().is_seeding:
             current_time = time.time()
             
-            # 更新UI状态
             if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
-              
                 self.update_ui_status(handle)
                 last_status_update = current_time
             
-            # 处理HuggingFace上传
+            # Update current_piece before using it
+            status = handle.status()
+            current_piece = int(status.progress * torrent_file.num_pieces())
+            
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
-                print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
-                status = handle.status()
-                current_piece = int(status.progress * torrent_file.num_pieces())
-                
                 if current_piece > last_uploaded_piece:
                     print(f"\nUploading pieces {last_uploaded_piece + 1} to {current_piece}...")
                     for piece_index in range(last_uploaded_piece + 1, current_piece + 1):
@@ -256,7 +261,6 @@ class TorrentDownloader:
                 
                 last_upload_time = current_time
 
-            # 处理alert
             alerts = self.session.pop_alerts()
             for alert in alerts:
                 if alert.category() & lt.alert.category_t.error_notification:
