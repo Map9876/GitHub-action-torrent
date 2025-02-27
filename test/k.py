@@ -47,7 +47,7 @@ class TorrentDownloader:
             'enable_lsd': True,
             'enable_upnp': True,
             'enable_natpmp': True,
-            'download_rate_limit': 0,
+            'download_rate_limit': 5 * 1024 * 1024,  # 5 MB/s 的速率限制
             'upload_rate_limit': 0,
             'alert_queue_size': 10000,
         }
