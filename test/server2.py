@@ -11,6 +11,7 @@ from dler import download_manager
 import time
 import aiohttp
 
+
 class HealthCheckHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/healthz':
