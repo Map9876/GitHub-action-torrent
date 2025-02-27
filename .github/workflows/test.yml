@@ -1,4 +1,4 @@
-name: Run CI on test folder changes
+name: 测试cloudflared
 
 on:
   push:
