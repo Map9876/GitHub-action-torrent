@@ -329,10 +329,10 @@ class TorrentDownloader:
             for piece_index in range(last_uploaded_piece + 1, current_piece + 1):
                 if handle.have_piece(piece_index):
                     piece_path = await self.save_piece(handle, piece_index)
-                        if piece_path:
-                            successful_pieces.append(piece_index)
-                            print(f"Saved piece {piece_index}")
-                        await asyncio.sleep(0.1)  # 避免过快读取
+                    if piece_path:
+                        successful_pieces.append(piece_index)
+                        print(f"Saved piece {piece_index}")
+                    await asyncio.sleep(0.1)  # 避免过快读取
             if current_time - last_upload_time >= self.UPLOAD_INTERVAL:
                  if successful_pieces:  # 如果有待上传的pieces
                 
