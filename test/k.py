@@ -1,7 +1,6 @@
 import libtorrent as lt
 import time
 import os
-import sys
 import json
 from huggingface_hub import HfApi, login
 from datetime import datetime, UTC
@@ -9,6 +8,7 @@ import asyncio
 from dler import download_manager
 
 def format_size(size):
+    """格式化文件大小"""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if size < 1024:
             return f"{size:.2f} {unit}"
