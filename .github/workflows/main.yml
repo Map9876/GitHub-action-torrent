@@ -1,6 +1,5 @@
 name: Action Practice
 
-
 on:
   push:
     paths-ignore:

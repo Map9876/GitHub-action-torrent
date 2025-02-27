@@ -1,6 +1,5 @@
 name: Action k
 
-
 on:
   push:
     paths-ignore:
