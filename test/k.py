@@ -250,22 +250,31 @@ class TorrentDownloader:
 
         except Exception as e:
             print(f"\nError in update_ui_status: {e}")
+
     async def download(self):
         """主下载逻辑"""
         print(f'Current Date and Time (UTC): {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}')
 
-        login(token=self.huggingface_token)
-        print("Successfully logged in to Hugging Face")
+        # 登录到 Hugging Face
+        try:
+            login(token=self.huggingface_token)
+            print("Successfully logged in to Hugging Face")
+        except Exception as e:
+            print(f"Login failed: {e}")
+            return
 
+        # 确保仓库存在
         try:
             repo_url = self.api.create_repo(
                 repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
                 repo_type=self.REPO_TYPE,
-                private=False
+                private=False,
+                exist_ok=True  # 允许仓库已存在
             )
-            print(f"Repository URL: {repo_url}")
+            print(f"Repository ready at: {repo_url}")
         except Exception as e:
-            print(f'Repository note: {e}')
+            print(f'Repository error: {e}')
+            return
 
         # 设置 DHT
         self.session.add_dht_router("router.bittorrent.com", 6881)
@@ -287,14 +296,13 @@ class TorrentDownloader:
             await asyncio.sleep(1)
 
         print('\nGot metadata, starting download...')
-        torrent_file = handle.status().torrent_file
-
-        if not torrent_file:
-            print("Error: Failed to get torrent info")
-            return
-
-        print(f"Total size: {format_size(torrent_file.total_size())}")
-        print(f"Number of pieces: {torrent_file.num_pieces()}")
+        torrent_info = handle.get_torrent_info()
+        total_pieces = torrent_info.num_pieces()
+        piece_length = torrent_info.piece_length()
+        
+        print(f"Total size: {format_size(torrent_info.total_size())}")
+        print(f"Number of pieces: {total_pieces}")
+        print(f"Piece length: {format_size(piece_length)}")
 
         # 从本地加载进度
         progress_data = self.load_progress_from_file()
@@ -302,77 +310,90 @@ class TorrentDownloader:
         if progress_data:
             print("Resuming from previous progress...")
             last_uploaded_piece = progress_data.get('last_uploaded_piece', -1)
+            print(f"Last uploaded piece: {last_uploaded_piece}")
 
-        last_upload_time = 0  # 设置为0以确保第一次就会上传
+        last_upload_time = time.time() - self.UPLOAD_INTERVAL  # 确保第一批pieces会被上传
         last_status_update = time.time()
-        successful_pieces = []  # 用于收集成功下载的pieces
+        successful_pieces = []
         last_processed_piece = last_uploaded_piece
 
         while not handle.status().is_seeding:
             current_time = time.time()
-
+            status = handle.status()
+            
+            # 更新状态显示
             if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
                 self.update_ui_status(handle)
                 last_status_update = current_time
 
-            status = handle.status()
-            current_piece = int(status.progress * torrent_file.num_pieces())
+            # 计算当前下载进度
+            current_piece = int(status.progress * total_pieces)
 
-            # 检查新的pieces
+            # 处理新下载的pieces
             for piece_index in range(last_processed_piece + 1, current_piece + 1):
                 if handle.have_piece(piece_index):
-                    print(f"Attempting to save piece {piece_index}")
+                    print(f"\nProcessing piece {piece_index}")
                     piece_path = await self.save_piece(handle, piece_index)
                     if piece_path:
                         successful_pieces.append(piece_index)
-                        print(f"Successfully saved piece {piece_index}")
+                        print(f"Piece {piece_index} saved successfully")
                     await asyncio.sleep(0.1)
             
             last_processed_piece = current_piece
 
-            # 每分钟检查是否需要上传
-            if (current_time - last_upload_time >= self.UPLOAD_INTERVAL or len(successful_pieces) >= self.PIECES_PER_ARCHIVE):
-                if successful_pieces:  # 只在有pieces时尝试上传
-                    print(f"\nTime to upload! {len(successful_pieces)} pieces waiting.")
-                    # 对pieces进行排序和分组
-                    successful_pieces.sort()
-                    chunks = []
-                    current_chunk = []
+            # 检查是否需要上传
+            if successful_pieces and (
+                current_time - last_upload_time >= self.UPLOAD_INTERVAL or 
+                len(successful_pieces) >= self.PIECES_PER_ARCHIVE
+            ):
+                print(f"\nPreparing to upload {len(successful_pieces)} pieces...")
+                
+                # 对pieces进行排序和分组
+                successful_pieces.sort()
+                chunks = []
+                current_chunk = []
+                
+                for piece in successful_pieces:
+                    if not current_chunk or piece == current_chunk[-1] + 1:
+                        current_chunk.append(piece)
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        current_chunk = [piece]
+                
+                if current_chunk:
+                    chunks.append(current_chunk)
+
+                print(f"Created {len(chunks)} groups of continuous pieces")
+
+                # 处理每个分组
+                uploaded_pieces = set()
+                for chunk in chunks:
+                    start_piece = chunk[0]
+                    end_piece = chunk[-1]
                     
-                    for piece in successful_pieces:
-                        if not current_chunk or piece == current_chunk[-1] + 1:
-                            current_chunk.append(piece)
-                        else:
-                            if current_chunk:
-                                chunks.append(current_chunk)
-                            current_chunk = [piece]
-                    if current_chunk:
-                        chunks.append(current_chunk)
-
-                    print(f"Created {len(chunks)} chunks of continuous pieces")
-
-                    # 处理每个连续的piece组
-                    for chunk in chunks:
-                        start_piece = chunk[0]
-                        end_piece = chunk[-1]
-                        
-                        print(f"Creating archive for pieces {start_piece} to {end_piece}")
-                        archive_path = self.create_piece_archive(start_piece, end_piece, chunk)
-                        
-                        if archive_path:
-                            print(f"Archive created at {archive_path}")
+                    print(f"\nCreating archive for pieces {start_piece} to {end_piece}")
+                    archive_path = self.create_piece_archive(start_piece, end_piece, chunk)
+                    
+                    if archive_path:
+                        try:
                             if await self.upload_piece_archive(archive_path, start_piece, end_piece):
                                 print(f"Successfully uploaded archive {start_piece} to {end_piece}")
+                                uploaded_pieces.update(chunk)
                                 last_uploaded_piece = max(last_uploaded_piece, end_piece)
-                                # 从successful_pieces中移除已上传的pieces
-                                successful_pieces = [p for p in successful_pieces if p not in chunk]
                                 self.save_progress_to_file(handle, last_uploaded_piece)
                             else:
                                 print(f"Failed to upload archive {start_piece} to {end_piece}")
+                        except Exception as e:
+                            print(f"Error during upload: {e}")
 
-                    last_upload_time = current_time
-                    print(f"Upload cycle complete. {len(successful_pieces)} pieces remaining")
+                # 移除已上传的pieces
+                successful_pieces = [p for p in successful_pieces if p not in uploaded_pieces]
+                print(f"Remaining pieces after upload: {len(successful_pieces)}")
+                
+                last_upload_time = current_time
 
+            # 处理错误信息
             alerts = self.session.pop_alerts()
             for alert in alerts:
                 if alert.category() & lt.alert.category_t.error_notification:
