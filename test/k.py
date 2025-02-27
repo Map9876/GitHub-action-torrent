@@ -258,11 +258,7 @@ class TorrentDownloader:
         try:
             login(token=self.huggingface_token)
             print("Successfully logged in to Hugging Face")
-        except Exception as e:
-            print(f"Login failed: {e}")
-            return
 
-        try:
             repo_url = self.api.create_repo(
                 repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
                 repo_type=self.REPO_TYPE,
@@ -270,168 +266,88 @@ class TorrentDownloader:
                 exist_ok=True
             )
             print(f"Repository ready at: {repo_url}")
-        except Exception as e:
-            print(f'Repository error: {e}')
-            return
 
-        self.session.add_dht_router("router.bittorrent.com", 6881)
-        self.session.add_dht_router("router.utorrent.com", 6881)
-        self.session.add_dht_router("dht.transmissionbt.com", 6881)
+            # 设置DHT
+            self.session.add_dht_router("router.bittorrent.com", 6881)
+            self.session.add_dht_router("router.utorrent.com", 6881)
+            self.session.add_dht_router("dht.transmissionbt.com", 6881)
 
-        atp = lt.add_torrent_params()
-        atp.url = self.magnet_link
-        atp.save_path = self.save_path
-        handle = self.session.add_torrent(atp)
+            # 创建torrent handle
+            atp = lt.add_torrent_params()
+            atp.url = self.magnet_link
+            atp.save_path = self.save_path
+            handle = self.session.add_torrent(atp)
 
-        print('Downloading metadata...')
-        while not handle.status().has_metadata:
-            try:
+            print('Downloading metadata...')
+            while not handle.status().has_metadata:
                 self.update_ui_status(handle)
-            except Exception as e:
-                print(f"Error during metadata download: {e}")
-            await asyncio.sleep(1)
+                await asyncio.sleep(1)
 
-        print('\nGot metadata, starting download...')
-        torrent_info = handle.get_torrent_info()
-        total_pieces = torrent_info.num_pieces()
-        piece_length = torrent_info.piece_length()
-        
-        print(f"Total size: {format_size(torrent_info.total_size())}")
-        print(f"Number of pieces: {total_pieces}")
-        print(f"Piece length: {format_size(piece_length)}")
+            print('\nGot metadata, starting download...')
+            torrent_info = handle.get_torrent_info()
+            print(f"Total size: {format_size(torrent_info.total_size())}")
+            print(f"Number of pieces: {torrent_info.num_pieces()}")
 
-        progress_data = self.load_progress_from_file()
-        last_uploaded_piece = -1
-        if progress_data:
-            print("Resuming from previous progress...")
-            last_uploaded_piece = progress_data.get('last_uploaded_piece', -1)
-            print(f"Last uploaded piece: {last_uploaded_piece}")
+            last_processed_piece = -1
+            last_upload_time = time.time()
+            pending_pieces = []
 
-        last_upload_time = time.time() - self.UPLOAD_INTERVAL
-        last_status_update = time.time()
-        successful_pieces = []
-        last_processed_piece = last_uploaded_piece
-
-        while not handle.status().is_seeding:
-            current_time = time.time()
-            status = handle.status()
-            
-            if current_time - last_status_update >= self.STATUS_UPDATE_INTERVAL:
+            while not handle.status().is_seeding:
+                current_time = time.time()
                 self.update_ui_status(handle)
-                last_status_update = current_time
 
-            current_piece = int(status.progress * total_pieces)
+                # 计算当前下载的piece
+                current_piece = int(handle.status().progress * torrent_info.num_pieces())
 
-            # 收集新下载的pieces
-            for piece_index in range(last_processed_piece + 1, current_piece + 1):
-                if handle.have_piece(piece_index):
-                    print(f"\nProcessing piece {piece_index}")
-                    piece_path = await self.save_piece(handle, piece_index)
-                    if piece_path:
-                        successful_pieces.append(piece_index)
-                        print(f"Piece {piece_index} saved successfully")
-                    await asyncio.sleep(0.1)
-            
-            last_processed_piece = current_piece
+                # 保存新下载的pieces
+                for piece_index in range(last_processed_piece + 1, current_piece + 1):
+                    if handle.have_piece(piece_index):
+                        piece_path = await self.save_piece(handle, piece_index)
+                        if piece_path:
+                            pending_pieces.append(piece_index)
+                            print(f"Saved piece {piece_index}")
 
-            # 当收集到足够的pieces或达到时间间隔时进行上传
-            if successful_pieces and (
-                len(successful_pieces) >= self.PIECES_PER_ARCHIVE or
-                (current_time - last_upload_time >= self.UPLOAD_INTERVAL and len(successful_pieces) > 0)
-            ):
-                print(f"\nPreparing to upload {len(successful_pieces)} pieces...")
-                successful_pieces.sort()
-                
-                # 将pieces分成大小合适的批次
-                batch_size = min(self.PIECES_PER_ARCHIVE, len(successful_pieces))
-                chunks = []
-                
-                # 查找连续的pieces序列
-                current_chunk = []
-                for i in range(len(successful_pieces)):
-                    if not current_chunk:
-                        current_chunk.append(successful_pieces[i])
-                    elif successful_pieces[i] == current_chunk[-1] + 1:
-                        current_chunk.append(successful_pieces[i])
-                    else:
-                        if len(current_chunk) >= batch_size:
-                            # 如果当前chunk已经足够大，就分割它
-                            while len(current_chunk) > batch_size:
-                                chunks.append(current_chunk[:batch_size])
-                                current_chunk = current_chunk[batch_size:]
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = [successful_pieces[i]]
+                last_processed_piece = current_piece
 
-                # 处理最后一个chunk
-                if current_chunk:
-                    if len(current_chunk) >= batch_size:
-                        while len(current_chunk) > batch_size:
-                            chunks.append(current_chunk[:batch_size])
-                            current_chunk = current_chunk[batch_size:]
-                    chunks.append(current_chunk)
-
-                print(f"Created {len(chunks)} groups of pieces")
-
-                # 上传每个分组
-                remaining_pieces = set(successful_pieces)
-                for chunk in chunks:
-                    if len(chunk) < 1:
-                        continue
-                        
-                    start_piece = chunk[0]
-                    end_piece = chunk[-1]
+                # 每分钟上传一次
+                if current_time - last_upload_time >= self.UPLOAD_INTERVAL and pending_pieces:
+                    print(f"\nUploading {len(pending_pieces)} pieces")
+                    start_piece = min(pending_pieces)
+                    end_piece = max(pending_pieces)
                     
-                    print(f"\nCreating archive for pieces {start_piece} to {end_piece} (total: {len(chunk)} pieces)")
-                    archive_path = self.create_piece_archive(start_piece, end_piece, chunk)
-                    
+                    archive_path = self.create_piece_archive(start_piece, end_piece, pending_pieces)
                     if archive_path:
                         if await self.upload_piece_archive(archive_path, start_piece, end_piece):
-                            print(f"Successfully uploaded archive {start_piece} to {end_piece}")
-                            remaining_pieces.difference_update(chunk)
-                            last_uploaded_piece = max(last_uploaded_piece, end_piece)
-                            self.save_progress_to_file(handle, last_uploaded_piece)
-                        else:
-                            print(f"Failed to upload archive {start_piece} to {end_piece}")
+                            print(f"Successfully uploaded pieces {start_piece} to {end_piece}")
+                            self.save_progress_to_file(handle, end_piece)
+                            pending_pieces = []  # 清空已上传的pieces
+                    
+                    last_upload_time = current_time
 
-                # 更新待处理的pieces列表
-                successful_pieces = list(remaining_pieces)
-                print(f"Remaining pieces after upload: {len(successful_pieces)}")
-                last_upload_time = current_time
+                await asyncio.sleep(1)
 
-            alerts = self.session.pop_alerts()
-            for alert in alerts:
-                if alert.category() & lt.alert.category_t.error_notification:
-                    print(f"\nError: {alert.message()}")
-
-            await asyncio.sleep(1)
-
-        print('\nDownload complete!')
-        
-        # 处理剩余的pieces
-        if successful_pieces:
-            print(f"\nUploading final {len(successful_pieces)} pieces")
-            successful_pieces.sort()
+            print('\nDownload complete!')
             
-            # 将剩余的pieces分成适当大小的批次
-            for i in range(0, len(successful_pieces), self.PIECES_PER_ARCHIVE):
-                batch = successful_pieces[i:i + self.PIECES_PER_ARCHIVE]
-                start_piece = batch[0]
-                end_piece = batch[-1]
+            # 上传剩余的pieces
+            if pending_pieces:
+                start_piece = min(pending_pieces)
+                end_piece = max(pending_pieces)
+                print(f"\nUploading final pieces {start_piece} to {end_piece}")
                 
-                print(f"Creating final archive for pieces {start_piece} to {end_piece}")
-                archive_path = self.create_piece_archive(start_piece, end_piece, batch)
+                archive_path = self.create_piece_archive(start_piece, end_piece, pending_pieces)
                 if archive_path:
                     if await self.upload_piece_archive(archive_path, start_piece, end_piece):
-                        print(f"Successfully uploaded final archive {start_piece} to {end_piece}")
+                        print(f"Successfully uploaded final pieces")
                         self.save_progress_to_file(handle, end_piece)
 
-        print("\nCleaning up temporary files...")
-        if os.path.exists(self.pieces_folder):
-            shutil.rmtree(self.pieces_folder)
-        if os.path.exists(self.temp_folder):
-            shutil.rmtree(self.temp_folder)
-        print("Cleanup complete")
+            # 清理临时文件
+            if os.path.exists(self.pieces_folder):
+                shutil.rmtree(self.pieces_folder)
+            if os.path.exists(self.temp_folder):
+                shutil.rmtree(self.temp_folder)
+
+        except Exception as e:
+            print(f"Download error: {e}")
 
 async def start_download(magnet_link, save_path, huggingface_token):
     """启动下载任务"""
