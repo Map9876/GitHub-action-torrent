@@ -105,7 +105,7 @@ class TorrentDownloader:
         """上传piece压缩包到HuggingFace"""
         for attempt in range(self.MAX_RETRIES):
             try:
-                self.api.upload_file(
+                self.api.ile(
                     path_or_fileobj=archive_path,
                     path_in_repo=f"test/pieces/archive_{start_piece}_to_{end_piece}.zip",
                     repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
@@ -122,7 +122,7 @@ class TorrentDownloader:
         """从本地文件加载下载进度"""
         try:
             if os.path.exists(self.progress_file):
-                with open(self.progress_file, 'r') as f:
+                with  <(self.progress_file, 'r') as f:
                     progress_data = json.load(f)
                 print(f"Loaded progress: {len(progress_data['downloaded_pieces'])} pieces downloaded")
                 return progress_data
@@ -338,10 +338,3 @@ class TorrentDownloader:
 async def start_download(magnet_link, save_path, huggingface_token):
     downloader = TorrentDownloader(magnet_link, save_path, huggingface_token)
     await downloader.download()
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python3 k.py <huggingface_token>")
-        sys.exit(1)
-
-    magnet_link = "magnet:?xt=urn:btih:UPDH7IQHVPOHYBBJQYFSTUEEI6G2AD6K&dn=&tr=http%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=udp%3A%2F%2F104.143.10.186%3A8000%2Fannounce&tr=http%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce&tr=http%3A%2F%2Ftracker3.itzmx.com%3A6961%2Fannounce&tr=http%
