@@ -122,7 +122,7 @@ class TorrentDownloader:
         """从本地文件加载下载进度"""
         try:
             if os.path.exists(self.progress_file):
-                with  <(self.progress_file, 'r') as f:
+                with (self.progress_file, 'r') as f:
                     progress_data = json.load(f)
                 print(f"Loaded progress: {len(progress_data['downloaded_pieces'])} pieces downloaded")
                 return progress_data
