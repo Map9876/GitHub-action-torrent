@@ -68,30 +68,38 @@ class TorrentDownloader:
                 if not piece_future.done():
                     piece_future.set_result(piece_buffer)
 
-            # 使用 lt.piece_index_t 包装 piece_index
-            piece_index_t = lt.piece_index_t(piece_index)
-
             # 调用 read_piece
-            handle.read_piece(piece_index_t, piece_read_callback)
+            handle.read_piece(piece_index)
 
             # 等待回调完成，设置超时时间
             try:
-                piece_buffer = await asyncio.wait_for(piece_future, timeout=10.0)
+            # 循环处理alerts直到获取到所需的piece数据
+                async with asyncio.timeout(10):  # 10秒超时
+                    while not piece_future.done():
+                        alerts = self.session.pop_alerts()
+                        for alert in alerts:
+                            if isinstance(alert, lt.read_piece_alert):
+                                if alert.piece == piece_index and not piece_future.done():
+                                    piece_future.set_result(alert.buffer)
+                        await asyncio.sleep(0.1)
+
+                piece_buffer = await piece_future
+                if not piece_buffer:
+                    print(f"No data received for piece {piece_index}")
+                    return None
+
+
+
+            # 保存 piece 数据到文件
+                piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
+                with open(piece_path, 'wb') as f:
+                    f.write(piece_buffer)
+
+                return piece_path
             except asyncio.TimeoutError:
                 print(f"Timeout reading piece {piece_index}")
                 return None
 
-            # 检查 piece_buffer 是否有效
-            if piece_buffer is None:
-                print(f"Failed to read piece {piece_index}")
-                return None
-
-            # 保存 piece 数据到文件
-            piece_path = os.path.join(self.pieces_folder, f"piece_{piece_index}.dat")
-            with open(piece_path, 'wb') as f:
-                f.write(piece_buffer)
-
-            return piece_path
 
         except Exception as e:
             print(f"Error saving piece {piece_index}: {e}")
