@@ -62,20 +62,20 @@ class TorrentDownloader:
             print(f"Error saving piece {piece_index}: {e}")
             return None
 
-    def load_progress_from_hf(self):
+    def load_progress_from_file(self):
+        """从本地文件加载下载进度"""
         try:
-            progress_content = self.api.download_file(
-                repo_id=f"{self.USERNAME}/{self.REPO_NAME}",
-                filename="download_progress.json"
-            )
-            progress_data = json.loads(progress_content)
-            print(f"Loaded progress: {len(progress_data['downloaded_pieces'])} pieces downloaded")
-            return progress_data
+            if os.path.exists(self.progress_file):
+                with open(self.progress_file, 'r') as f:
+                    progress_data = json.load(f)
+                print(f"Loaded progress from file: {len(progress_data['downloaded_pieces'])} pieces downloaded")
+                return progress_data
         except Exception as e:
-            print(f"No previous progress found on HuggingFace: {e}")
-            return None
+            print(f"Error loading progress from file: {e}")
+        return None
 
-    def save_progress_to_hf(self, handle, last_uploaded_piece):
+    def save_progress_to_file(self, handle, last_uploaded_piece):
+        """保存下载进度到本地文件和HuggingFace"""
         progress_data = {
             "last_uploaded_piece": last_uploaded_piece,
             "downloaded_pieces": [i for i in range(handle.status().torrent_file.num_pieces()) 
@@ -84,9 +84,14 @@ class TorrentDownloader:
             "total_pieces": handle.status().torrent_file.num_pieces()
         }
         
-        with open(self.progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        # 保存到本地文件
+        try:
+            with open(self.progress_file, 'w') as f:
+                json.dump(progress_data, f)
+        except Exception as e:
+            print(f"Error saving progress to local file: {e}")
         
+        # 上传到HuggingFace
         try:
             self.api.upload_file(
                 path_or_fileobj=self.progress_file,
@@ -94,9 +99,10 @@ class TorrentDownloader:
                 repo_id=f'{self.USERNAME}/{self.REPO_NAME}',
                 repo_type=self.REPO_TYPE
             )
-            print(f"Progress saved at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Progress uploaded to HuggingFace at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
-            print(f"Error saving progress: {e}")
+            print(f"Error uploading progress to HuggingFace: {e}")
+        
         return progress_data
 
     def update_ui_status(self, handle):
@@ -214,7 +220,8 @@ class TorrentDownloader:
         print(f"Total size: {format_size(torrent_file.total_size())}")
         print(f"Number of pieces: {torrent_file.num_pieces()}")
 
-        progress_data = self.load_progress_from_hf()
+        # 从本地文件加载进度
+        progress_data = self.load_progress_from_file()
         last_uploaded_piece = -1
         if progress_data:
             print("Resuming from previous progress...")
@@ -224,7 +231,7 @@ class TorrentDownloader:
 
         last_upload_time = time.time()
         last_status_update = time.time()
-        current_piece = -1  # Initialize current_piece
+        current_piece = -1
 
         while not handle.status().is_seeding:
             current_time = time.time()
@@ -233,7 +240,6 @@ class TorrentDownloader:
                 self.update_ui_status(handle)
                 last_status_update = current_time
             
-            # Update current_piece before using it
             status = handle.status()
             current_piece = int(status.progress * torrent_file.num_pieces())
             
@@ -257,7 +263,7 @@ class TorrentDownloader:
                                     print(f"\nError uploading piece {piece_index}: {e}")
                     
                     last_uploaded_piece = current_piece
-                    self.save_progress_to_hf(handle, last_uploaded_piece)
+                    self.save_progress_to_file(handle, last_uploaded_piece)
                 
                 last_upload_time = current_time
 
@@ -269,7 +275,7 @@ class TorrentDownloader:
             await asyncio.sleep(1)
 
         print('\nDownload complete!')
-        self.save_progress_to_hf(handle, torrent_file.num_pieces() - 1)
+        self.save_progress_to_file(handle, torrent_file.num_pieces() - 1)
 
 async def start_download(magnet_link, save_path, huggingface_token):
     downloader = TorrentDownloader(magnet_link, save_path, huggingface_token)
