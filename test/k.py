@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 import asyncio
 from dler import download_manager
 
-
 def format_size(size):
     """格式化文件大小"""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
