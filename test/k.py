@@ -309,31 +309,32 @@ class TorrentDownloader:
 
                 last_processed_piece = current_piece
 
-                # 每分钟上传一次
-                if current_time - last_upload_time >= self.UPLOAD_INTERVAL and pending_pieces:
+                # 检查是否需要上传
+                if (len(pending_pieces) >= self.PIECES_PER_ARCHIVE or
+                    (current_time - last_upload_time >= self.UPLOAD_INTERVAL and pending_pieces)):
                     print(f"\nUploading {len(pending_pieces)} pieces")
                     start_piece = min(pending_pieces)
                     end_piece = max(pending_pieces)
-                    
+
                     archive_path = self.create_piece_archive(start_piece, end_piece, pending_pieces)
                     if archive_path:
                         if await self.upload_piece_archive(archive_path, start_piece, end_piece):
                             print(f"Successfully uploaded pieces {start_piece} to {end_piece}")
                             self.save_progress_to_file(handle, end_piece)
                             pending_pieces = []  # 清空已上传的pieces
-                    
+
                     last_upload_time = current_time
 
                 await asyncio.sleep(1)
 
             print('\nDownload complete!')
-            
+
             # 上传剩余的pieces
             if pending_pieces:
                 start_piece = min(pending_pieces)
                 end_piece = max(pending_pieces)
                 print(f"\nUploading final pieces {start_piece} to {end_piece}")
-                
+
                 archive_path = self.create_piece_archive(start_piece, end_piece, pending_pieces)
                 if archive_path:
                     if await self.upload_piece_archive(archive_path, start_piece, end_piece):
